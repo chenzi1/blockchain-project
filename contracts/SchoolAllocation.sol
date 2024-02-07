@@ -52,6 +52,8 @@ contract SchoolAllocation {
 
     AllocationResult[] public allocationResults;
 
+    address[] public schoolAddress;
+
     mapping(uint256 => SchoolRegistration) public schoolRegistrations;
     uint256 public numSchools;
 
@@ -200,6 +202,10 @@ contract SchoolAllocation {
         }
 
         emit AllocationCompleted();
+    }
+
+    function getStudentsBySchool(uint256 schoolId) external view onlyOwner onlyDuringPhase(Phase.Completed) returns(bytes32[] memory students) {
+        return schoolRegistrations[schoolId].students;
     }
 
     //Simulates calling external API to calculate and retrieve distance from student residential address to school of choice
