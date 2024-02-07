@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract StudentContract {
+contract StudentRegistrationResult {
     address public owner;
 
     struct StudentInfo {
@@ -22,7 +22,7 @@ contract StudentContract {
         owner = msg.sender;
     }
 
-    function storeBallotResult(bytes32 _nricHash, uint256 _ballotResult) external onlyOwner {
+    function storeRegistrationResult(bytes32 _nricHash, uint256 _ballotResult) external onlyOwner {
         require(students[_nricHash].nricHash == bytes32(0), "Ballot result already stored for this NRIC");
 
         students[_nricHash] = StudentInfo(_nricHash, _ballotResult);
@@ -30,7 +30,7 @@ contract StudentContract {
         emit StudentBallotResult(_nricHash, _ballotResult);
     }
 
-    function getBallotResult(bytes32 _nricHash) external view returns (uint256) {
+    function getRegistrationResult(bytes32 _nricHash) external view returns (uint256) {
         return students[_nricHash].ballotResult;
     }
 }

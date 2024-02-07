@@ -2,9 +2,9 @@
 pragma solidity ^0.8.0;
 
 import "./StudentToken.sol";
-import "./StudentContract.sol";
+import "./StudentRegistrationResult.sol";
 
-contract SchoolBalloting {
+contract SchoolAllocation {
     address public owner;
     address public studentTokenContract;
     address public studentContract;
@@ -12,7 +12,7 @@ contract SchoolBalloting {
     enum Phase {
         PreRegistration,
         Registration,
-        Balloting,
+        Allocation,
         Completed
     }
 
@@ -30,9 +30,10 @@ contract SchoolBalloting {
     struct SchoolRegistration {
         string schoolName;
         uint256 vacancies;
+        bytes32[] students;
     }
 
-    struct BallotResult {
+    struct AllocationResult {
         bytes32 nricHash;
         uint256 schoolId;
     }
@@ -49,7 +50,7 @@ contract SchoolBalloting {
     address[] public prGroup2;
     address[] public prGroup3;
 
-    BallotResult[] public ballotResults;
+    AllocationResult[] public allocationResults;
 
     mapping(uint256 => SchoolRegistration) public schoolRegistrations;
     uint256 public numSchools;
@@ -65,9 +66,10 @@ contract SchoolBalloting {
     }
 
     event StudentRegistered(address indexed studentAddress, bytes32 nricHash, string residentialAddress, uint256 school);
-    event BallotingCompleted();
+    event AllocationCompleted();
     event RegistrationEdited(address indexed studentAddress, string newResidentialAddress, uint256 newSchool);
     event RegistrationWithdrawn(address indexed studentAddress);
+    event SchoolVacanciesEdited(uint256 schoolId, uint256 oldVacancies, uint256 newVacancies);
     event SchoolRegistered(uint256 schoolId, uint256 vacancies);
 
     constructor(uint256 _year, address _studentTokenContract, address _studentContract) {
@@ -82,7 +84,7 @@ contract SchoolBalloting {
         require(_vacancies > 0, "Vacancies must be greater than 0");
 
         numSchools++;
-        schoolRegistrations[numSchools] = SchoolRegistration(_name, _vacancies);
+        schoolRegistrations[numSchools] = SchoolRegistration(_name, _vacancies, new bytes32[](0));
 
         emit SchoolRegistered(numSchools, _vacancies);
     }
@@ -120,6 +122,13 @@ contract SchoolBalloting {
         }
 
         emit RegistrationEdited(msg.sender, _newResidentialAddress, _newSchool);
+    }
+
+    function editSchoolVacancies(uint256 schoolId, uint256 newVacancies) external onlyOwner {
+        uint256 oldVacancies = schoolRegistrations[schoolId].vacancies;
+        schoolRegistrations[schoolId].vacancies = newVacancies;
+
+        emit SchoolVacanciesEdited(schoolId, oldVacancies, newVacancies);
     }
 
     function viewRegistration() external view returns (bool isRegistered, bytes32 nricHash, string memory residentialAddress, uint256 school, uint256 distanceToSchool) {
@@ -161,13 +170,13 @@ contract SchoolBalloting {
         emit RegistrationWithdrawn(msg.sender);
     }
 
-    function startBalloting() external onlyOwner onlyDuringPhase(Phase.PreRegistration) {
-        currentPhase = Phase.Balloting;
+    function startAllocation() external onlyOwner onlyDuringPhase(Phase.Registration) {
+        currentPhase = Phase.Allocation;
 
         // Sort students based on distance to school (1 to 3)
         sortStudentsByDistance();
 
-        // Now, proceed with balloting
+        // Now, proceed with allocation
         // Allocate school vacancies based on distance for citizens group
         allocateSchoolVacancies(citizenGroup1, true, 1);
         allocateSchoolVacancies(citizenGroup2, true, 1);
@@ -179,18 +188,29 @@ contract SchoolBalloting {
         allocateSchoolVacancies(prGroup3, true, 1);
     }
 
-    function completeBalloting() external onlyOwner onlyDuringPhase(Phase.Balloting) {
+    function completeAllocation() external onlyOwner onlyDuringPhase(Phase.Allocation) {
         currentPhase = Phase.Completed;
 
-        //Stores ballot results in student contract
-        for (uint256 i = 0; i < ballotResults.length; i++) {
-            StudentContract(studentContract).storeBallotResult(
-                ballotResults[i].nricHash,
-                ballotResults[i].schoolId
+        //Stores allocation results in student contract
+        for (uint256 i = 0; i < allocationResults.length; i++) {
+            StudentRegistrationResult(studentContract).storeRegistrationResult(
+                allocationResults[i].nricHash,
+                allocationResults[i].schoolId
             );
         }
 
-        emit BallotingCompleted();
+        emit AllocationCompleted();
+    }
+
+    //Simulates calling external API to calculate and retrieve distance from student residential address to school of choice
+    function populateDistanceToSchool() external {
+        for (uint8 i = 1; i < singaporeCitizenAddresses.length; i++) {
+            singaporeCitizenRegistrations[singaporeCitizenAddresses[i]].distanceToSchool = i;
+        }
+
+        for (uint8 i = 1; i < permanentResidentAddresses.length; i++) {
+            permanentResidentRegistrations[permanentResidentAddresses[i]].distanceToSchool = i;
+        }
     }
 
     function removeAddressFromArray(address[] storage array, address value) internal {
@@ -238,15 +258,16 @@ contract SchoolBalloting {
 
         for (uint256 i = 0; i < studentsGroup.length; i++) {
             address studentAddress = studentsGroup[i];
-            uint256 randomSchool = (uint256(keccak256(abi.encodePacked(block.difficulty, block.timestamp, i))) % 10) + 1;
 
             // If vacancies are available, allocate the school to the student
             if (remainingVacancies > 0) {
                 // Store the ballot result
                 if (isCitizen) {
-                    ballotResults.push(BallotResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
+                    allocationResults.push(AllocationResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
+                    schoolRegistrations[schoolId].students.push(singaporeCitizenRegistrations[studentAddress].nricHash);
                 } else {
-                    ballotResults.push(BallotResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
+                    allocationResults.push(AllocationResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
+                    schoolRegistrations[schoolId].students.push(permanentResidentRegistrations[studentAddress].nricHash);
                 }
                 remainingVacancies--;
             } else {
@@ -272,7 +293,7 @@ contract SchoolBalloting {
             }
 
             // Choose a random index within the students group
-            uint256 randomIndex = (uint256(keccak256(abi.encodePacked(block.difficulty, block.timestamp, i))) % studentsGroup.length);
+            uint256 randomIndex = (uint256(keccak256(abi.encodePacked(block.prevrandao, block.timestamp, i))) % studentsGroup.length);
 
             // Retrieve the student address at the random index
             address selectedStudent = studentsGroup[randomIndex];
@@ -283,9 +304,11 @@ contract SchoolBalloting {
 
             // Store the ballot result
             if (isCitizen) {
-                ballotResults.push(BallotResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
+                allocationResults.push(AllocationResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
+                schoolRegistrations[schoolId].students.push(singaporeCitizenRegistrations[studentAddress].nricHash);
             } else {
-                ballotResults.push(BallotResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
+                allocationResults.push(AllocationResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
+                schoolRegistrations[schoolId].students.push(permanentResidentRegistrations[studentAddress].nricHash);
             }
             remainingVacancies--;
         }
