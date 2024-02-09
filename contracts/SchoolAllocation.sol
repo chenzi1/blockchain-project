@@ -7,7 +7,7 @@ import "./StudentRegistrationResult.sol";
 contract SchoolAllocation {
     address public owner;
     address public studentTokenContract;
-    address public studentContract;
+    address public studentRegistrationResultContract;
 
     enum Phase {
         PreRegistration,
@@ -38,19 +38,19 @@ contract SchoolAllocation {
         uint256 schoolId;
     }
 
-    mapping(address => StudentRegistration) public singaporeCitizenRegistrations;
-    mapping(address => StudentRegistration) public permanentResidentRegistrations;
+    mapping(address => StudentRegistration) private singaporeCitizenRegistrations;
+    mapping(address => StudentRegistration) private permanentResidentRegistrations;
 
-    address[] public singaporeCitizenAddresses;
-    address[] public permanentResidentAddresses;
-    address[] public citizenGroup1;
-    address[] public citizenGroup2;
-    address[] public citizenGroup3;
-    address[] public prGroup1;
-    address[] public prGroup2;
-    address[] public prGroup3;
+    address[] private singaporeCitizenAddresses;
+    address[] private permanentResidentAddresses;
+    address[] private citizenGroup1;
+    address[] private citizenGroup2;
+    address[] private citizenGroup3;
+    address[] private prGroup1;
+    address[] private prGroup2;
+    address[] private prGroup3;
 
-    AllocationResult[] public allocationResults;
+    AllocationResult[] private allocationResults;
 
     address[] public schoolAddress;
 
@@ -67,6 +67,7 @@ contract SchoolAllocation {
         _;
     }
 
+    event SchoolRegistrationCompleted();
     event StudentRegistered(address indexed studentAddress, bytes32 nricHash, string residentialAddress, uint256 school);
     event AllocationCompleted();
     event RegistrationEdited(address indexed studentAddress, string newResidentialAddress, uint256 newSchool);
@@ -74,12 +75,12 @@ contract SchoolAllocation {
     event SchoolVacanciesEdited(uint256 schoolId, uint256 oldVacancies, uint256 newVacancies);
     event SchoolRegistered(uint256 schoolId, uint256 vacancies);
 
-    constructor(uint256 _year, address _studentTokenContract, address _studentContract) {
+    constructor(uint256 _year, address _studentTokenContract, address _studentRegistrationResultContract) {
         owner = msg.sender;
         currentPhase = Phase.PreRegistration;
         year = _year;
         studentTokenContract = _studentTokenContract;
-        studentContract = _studentContract;
+        studentRegistrationResultContract = _studentRegistrationResultContract;
     }
 
     function registerSchool(string memory _name, uint256 _vacancies) external onlyOwner onlyDuringPhase(Phase.PreRegistration) {
@@ -91,7 +92,7 @@ contract SchoolAllocation {
         emit SchoolRegistered(numSchools, _vacancies);
     }
 
-    function registerStudent(string memory _nricHash, string memory _residentialAddress, uint256 _school, uint256 _distanceToSchool, bool _isSingaporeCitizen) external onlyDuringPhase(Phase.Registration) {
+    function registerStudent(string memory _nric, string memory _residentialAddress, uint256 _school, bool _isSingaporeCitizen) external onlyDuringPhase(Phase.Registration) {
         require(_isSingaporeCitizen || _school != 0, "School must be specified for Permanent Residents");
 
         StudentToken(studentTokenContract).approve(address(this), 1);
@@ -99,15 +100,15 @@ contract SchoolAllocation {
 
         if (_isSingaporeCitizen) {
             require(singaporeCitizenRegistrations[msg.sender].nricHash == bytes32(0), "Singapore citizen already registered");
-            singaporeCitizenRegistrations[msg.sender] = StudentRegistration(true, keccak256(abi.encodePacked(_nricHash)), _residentialAddress, _school, _distanceToSchool);
+            singaporeCitizenRegistrations[msg.sender] = StudentRegistration(true, keccak256(abi.encodePacked(_nric)), _residentialAddress, _school, 0);
             singaporeCitizenAddresses.push(msg.sender);
         } else {
             require(permanentResidentRegistrations[msg.sender].nricHash == bytes32(0), "Permanent resident already registered");
-            permanentResidentRegistrations[msg.sender] = StudentRegistration(true, keccak256(abi.encodePacked(_nricHash)), _residentialAddress, _school, _distanceToSchool);
+            permanentResidentRegistrations[msg.sender] = StudentRegistration(true, keccak256(abi.encodePacked(_nric)), _residentialAddress, _school, 0);
             permanentResidentAddresses.push(msg.sender);
         }
 
-        emit StudentRegistered(msg.sender, keccak256(abi.encodePacked(_nricHash)), _residentialAddress, _school);
+        emit StudentRegistered(msg.sender, keccak256(abi.encodePacked(_nric)), _residentialAddress, _school);
     }
 
     function editRegistration(string memory _newResidentialAddress, uint256 _newSchool, uint256 _newDistanceToSchool) external onlyDuringPhase(Phase.Registration) {
@@ -172,10 +173,16 @@ contract SchoolAllocation {
         emit RegistrationWithdrawn(msg.sender);
     }
 
+    function startStudentRegistration() external onlyOwner onlyDuringPhase(Phase.PreRegistration) {
+        currentPhase = Phase.Registration;
+
+        emit SchoolRegistrationCompleted();
+    }
+
     function startAllocation() external onlyOwner onlyDuringPhase(Phase.Registration) {
         currentPhase = Phase.Allocation;
 
-        // Sort students based on distance to school (1 to 3)
+        // Sort students based on distance to school
         sortStudentsByDistance();
 
         // Now, proceed with allocation
@@ -195,7 +202,7 @@ contract SchoolAllocation {
 
         //Stores allocation results in student contract
         for (uint256 i = 0; i < allocationResults.length; i++) {
-            StudentRegistrationResult(studentContract).storeRegistrationResult(
+            StudentRegistrationResult(studentRegistrationResultContract).storeRegistrationResult(
                 allocationResults[i].nricHash,
                 allocationResults[i].schoolId
             );
@@ -210,12 +217,12 @@ contract SchoolAllocation {
 
     //Simulates calling external API to calculate and retrieve distance from student residential address to school of choice
     function populateDistanceToSchool() external {
-        for (uint8 i = 1; i < singaporeCitizenAddresses.length; i++) {
-            singaporeCitizenRegistrations[singaporeCitizenAddresses[i]].distanceToSchool = i;
+        for (uint256 i = 0; i < singaporeCitizenAddresses.length; i++) {
+            singaporeCitizenRegistrations[singaporeCitizenAddresses[i]].distanceToSchool = i+1;
         }
 
-        for (uint8 i = 1; i < permanentResidentAddresses.length; i++) {
-            permanentResidentRegistrations[permanentResidentAddresses[i]].distanceToSchool = i;
+        for (uint256 i = 0; i < permanentResidentAddresses.length; i++) {
+            permanentResidentRegistrations[permanentResidentAddresses[i]].distanceToSchool = i+1;
         }
     }
 
@@ -262,51 +269,40 @@ contract SchoolAllocation {
     function allocateSchoolVacancies(address[] storage studentsGroup, bool isCitizen, uint8 schoolId) internal {
         uint256 remainingVacancies = schoolRegistrations[schoolId].vacancies;
 
-        for (uint256 i = 0; i < studentsGroup.length; i++) {
-            address studentAddress = studentsGroup[i];
-
-            // If vacancies are available, allocate the school to the student
-            if (remainingVacancies > 0) {
-                // Store the ballot result
-                if (isCitizen) {
-                    allocationResults.push(AllocationResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
-                    schoolRegistrations[schoolId].students.push(singaporeCitizenRegistrations[studentAddress].nricHash);
-                } else {
-                    allocationResults.push(AllocationResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
-                    schoolRegistrations[schoolId].students.push(permanentResidentRegistrations[studentAddress].nricHash);
-                }
-                remainingVacancies--;
-            } else {
+        if (remainingVacancies != 0) {
+            if (remainingVacancies < studentsGroup.length) {
                 // Start a ballot to randomly fill up the remaining vacancies from the student group
-                startRandomBallot(studentsGroup, isCitizen, i, schoolId);
-                break;
+                startRandomBallot(studentsGroup, isCitizen, remainingVacancies, schoolId);
+            } else {
+                for (uint256 i = 0; i < studentsGroup.length; i++) {
+                    address studentAddress = studentsGroup[i];
+
+                    // If vacancies are available, allocate the school to the student
+                    if (isCitizen) {
+                        allocationResults.push(AllocationResult(singaporeCitizenRegistrations[studentAddress].nricHash,schoolId));
+                        schoolRegistrations[schoolId].students.push(singaporeCitizenRegistrations[studentAddress].nricHash);
+                    } else {
+                        allocationResults.push(AllocationResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
+                        schoolRegistrations[schoolId].students.push(permanentResidentRegistrations[studentAddress].nricHash);
+                    }
+                    remainingVacancies--;
+                    schoolRegistrations[schoolId].vacancies = remainingVacancies;
+                }
             }
         }
     }
 
     function startRandomBallot(address[] storage studentsGroup, bool isCitizen, uint256 vacancies, uint256 schoolId) internal {
         require(vacancies > 0, "No vacancies available");
+        require(vacancies < studentsGroup.length);
 
-        uint256 remainingVacancies = vacancies;
+        // Choose a random index within the students group
+        uint256[] memory randomIndices = generateRandomIndices(vacancies, studentsGroup.length);
 
-        // Iterate through the students in the group and randomly allocate schools
-        for (uint256 i = 0; i < studentsGroup.length; i++) {
-            address studentAddress = studentsGroup[i];
-
-            // If all vacancies are filled, exit the loop
-            if (remainingVacancies == 0) {
-                break;
-            }
-
-            // Choose a random index within the students group
-            uint256 randomIndex = (uint256(keccak256(abi.encodePacked(block.prevrandao, block.timestamp, i))) % studentsGroup.length);
+        for (uint256 i = 0; i < randomIndices.length; i++) {
 
             // Retrieve the student address at the random index
-            address selectedStudent = studentsGroup[randomIndex];
-
-            // Swap the selected student with the current student
-            studentsGroup[randomIndex] = studentAddress;
-            studentsGroup[i] = selectedStudent;
+            address studentAddress = studentsGroup[randomIndices[i]];
 
             // Store the ballot result
             if (isCitizen) {
@@ -316,9 +312,29 @@ contract SchoolAllocation {
                 allocationResults.push(AllocationResult(permanentResidentRegistrations[studentAddress].nricHash,schoolId));
                 schoolRegistrations[schoolId].students.push(permanentResidentRegistrations[studentAddress].nricHash);
             }
-            remainingVacancies--;
         }
-        schoolRegistrations[schoolId].vacancies = remainingVacancies;
-
+        schoolRegistrations[schoolId].vacancies = 0;
     }
+
+    function generateRandomIndices(uint256 count, uint256 range) internal view returns (uint256[] memory) {
+        require(count <= range, "Count must be less than or equal to range");
+        uint256[] memory indices = new uint256[](count);
+        uint256[] memory tempArray = new uint256[](range);
+        uint256 lastIndex = range - 1;
+
+        // Fill tempArray with sequential values from 0 to range - 1
+        for (uint256 i = 0; i < range; i++) {
+            tempArray[i] = i;
+        }
+
+        // Shuffle tempArray and select first 'count' elements
+        for (uint256 i = 0; i < count; i++) {
+            uint256 randomIndex = uint256(keccak256(abi.encode(blockhash(block.number - 1), block.timestamp, i))) % (lastIndex + 1);
+            indices[i] = tempArray[randomIndex];
+            tempArray[randomIndex] = tempArray[lastIndex--];
+        }
+
+        return indices;
+    }
+
 }
