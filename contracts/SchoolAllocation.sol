@@ -70,7 +70,7 @@ contract SchoolAllocation {
     event SchoolRegistrationCompleted();
     event StudentRegistered(address indexed studentAddress, bytes32 nricHash, string residentialAddress, uint256 school);
     event AllocationCompleted();
-    event RegistrationEdited(address indexed studentAddress, string newResidentialAddress, uint256 newSchool);
+    event RegistrationEdited(address indexed studentAddress, uint256 newSchool);
     event RegistrationWithdrawn(address indexed studentAddress);
     event SchoolVacanciesEdited(uint256 schoolId, uint256 oldVacancies, uint256 newVacancies);
     event SchoolRegistered(uint256 schoolId, uint256 vacancies);
@@ -111,20 +111,16 @@ contract SchoolAllocation {
         emit StudentRegistered(msg.sender, keccak256(abi.encodePacked(_nric)), _residentialAddress, _school);
     }
 
-    function editRegistration(string memory _newResidentialAddress, uint256 _newSchool, uint256 _newDistanceToSchool) external onlyDuringPhase(Phase.Registration) {
+    function editRegistration(uint256 _newSchool) external onlyDuringPhase(Phase.Registration) {
         require(singaporeCitizenRegistrations[msg.sender].isRegistered || permanentResidentRegistrations[msg.sender].isRegistered, "Student not registered");
 
         if (singaporeCitizenRegistrations[msg.sender].isRegistered) {
-            singaporeCitizenRegistrations[msg.sender].residentialAddress = _newResidentialAddress;
             singaporeCitizenRegistrations[msg.sender].school = _newSchool;
-            singaporeCitizenRegistrations[msg.sender].distanceToSchool = _newDistanceToSchool;
         } else {
-            permanentResidentRegistrations[msg.sender].residentialAddress = _newResidentialAddress;
             permanentResidentRegistrations[msg.sender].school = _newSchool;
-            permanentResidentRegistrations[msg.sender].distanceToSchool = _newDistanceToSchool;
         }
 
-        emit RegistrationEdited(msg.sender, _newResidentialAddress, _newSchool);
+        emit RegistrationEdited(msg.sender, _newSchool);
     }
 
     function editSchoolVacancies(uint256 schoolId, uint256 newVacancies) external onlyOwner {
@@ -182,19 +178,29 @@ contract SchoolAllocation {
     function startAllocation() external onlyOwner onlyDuringPhase(Phase.Registration) {
         currentPhase = Phase.Allocation;
 
-        // Sort students based on distance to school
-        sortStudentsByDistance();
+        for (uint256 i = 1; i <= numSchools; i++) {
+            // Sort students based on distance to school
+            sortStudentsByDistance(i);
 
-        // Now, proceed with allocation
-        // Allocate school vacancies based on distance for citizens group
-        allocateSchoolVacancies(citizenGroup1, true, 1);
-        allocateSchoolVacancies(citizenGroup2, true, 1);
-        allocateSchoolVacancies(citizenGroup3, true, 1);
+            // Now, proceed with allocation
+            // Allocate school vacancies based on distance for citizens group
+            allocateSchoolVacancies(citizenGroup1, true, i);
+            allocateSchoolVacancies(citizenGroup2, true, i);
+            allocateSchoolVacancies(citizenGroup3, true, i);
 
-        // Allocate school vacancies based on distance for permanent residents group
-        allocateSchoolVacancies(prGroup1, true, 1);
-        allocateSchoolVacancies(prGroup2, true, 1);
-        allocateSchoolVacancies(prGroup3, true, 1);
+            // Allocate school vacancies based on distance for permanent residents group
+            allocateSchoolVacancies(prGroup1, false, i);
+            allocateSchoolVacancies(prGroup2, false, i);
+            allocateSchoolVacancies(prGroup3, false, i);
+
+            //Reset groups
+            delete citizenGroup1;
+            delete citizenGroup2;
+            delete citizenGroup3;
+            delete prGroup1;
+            delete prGroup2;
+            delete prGroup3;
+        }
     }
 
     function completeAllocation() external onlyOwner onlyDuringPhase(Phase.Allocation) {
@@ -238,17 +244,19 @@ contract SchoolAllocation {
         }
     }
 
-    function sortStudentsByDistance() internal {
+    function sortStudentsByDistance(uint256 schoolId) internal {
         // Sort Singapore citizen students
         for (uint256 i = 0; i < singaporeCitizenAddresses.length; i++) {
             address studentAddress = singaporeCitizenAddresses[i];
             uint256 distance = singaporeCitizenRegistrations[studentAddress].distanceToSchool;
-            if (distance < 1) {
-                citizenGroup1.push(studentAddress);
-            } else if (distance >= 1 && distance <= 2) {
-                citizenGroup2.push(studentAddress);
-            } else {
-                citizenGroup3.push(studentAddress);
+            if (singaporeCitizenRegistrations[studentAddress].school == schoolId) {
+                if (distance < 1) {
+                    citizenGroup1.push(studentAddress);
+                } else if (distance >= 1 && distance <= 2) {
+                    citizenGroup2.push(studentAddress);
+                } else {
+                    citizenGroup3.push(studentAddress);
+                }
             }
         }
 
@@ -256,17 +264,19 @@ contract SchoolAllocation {
         for (uint256 i = 0; i < permanentResidentAddresses.length; i++) {
             address studentAddress = permanentResidentAddresses[i];
             uint256 distance = permanentResidentRegistrations[studentAddress].distanceToSchool;
-            if (distance < 1) {
-                prGroup1.push(studentAddress);
-            } else if (distance >= 1 && distance <= 2) {
-                prGroup2.push(studentAddress);
-            } else {
-                prGroup3.push(studentAddress);
+            if (permanentResidentRegistrations[studentAddress].school == schoolId) {
+                if (distance < 1) {
+                    prGroup1.push(studentAddress);
+                } else if (distance >= 1 && distance <= 2) {
+                    prGroup2.push(studentAddress);
+                } else {
+                    prGroup3.push(studentAddress);
+                }
             }
         }
     }
 
-    function allocateSchoolVacancies(address[] storage studentsGroup, bool isCitizen, uint8 schoolId) internal {
+    function allocateSchoolVacancies(address[] storage studentsGroup, bool isCitizen, uint256 schoolId) internal {
         uint256 remainingVacancies = schoolRegistrations[schoolId].vacancies;
 
         if (remainingVacancies != 0) {
