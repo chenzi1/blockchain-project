@@ -6,15 +6,24 @@ SchoolBalloting.sol
 
 Showcase flows (individual students have one unique account address)
 1. Mint token by admin(MOE) -> transfer to students address (eligible phase)
-2. Register student without registration token -> revert transaction
-3. Register student for ballot -> pay token to contract
-4. Register student again -> transaction revert (student already registered)
-5. Edit Registration -> existing records should be updated
-6. Withdraw Registration -> can cancel registration and refund token
-7. Start Allocation -> get students assigned to schools
-8. Ballot completed -> store result to student registration result contract -> student query result from student registration result contract
+2. Pre-registration -> Schools Register vacancies through MOE
+3. Start student registration phase
+4. Register student without registration token -> revert transaction
+5. Register student for ballot -> pay token to contract
+6. Register student again -> transaction revert (student already registered)
+7. Edit Registration -> existing records should be updated
+8. Withdraw Registration -> can cancel registration and refund token
+
+After registering all sample students below
+
+9. Populate distance of registered student to their school of choice
+10. Start Allocation -> get students assigned to schools
+11. Allocation completed -> store result to student registration result contract -> student query result from student registration result contract
+12. MOE can retrieve list of students allocated to a certain school
 
 Using Remix VM (Shanghai)
+
+Contracts owner(MOE): 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4
 
 | account                                    | nric      | nric hash                                                          | school choice | residential address | isSingaporeCitizen |
 |--------------------------------------------|-----------|--------------------------------------------------------------------|---------------|---------------------|--------------------|
